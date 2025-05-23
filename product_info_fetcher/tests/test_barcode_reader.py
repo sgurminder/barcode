@@ -3,89 +3,111 @@ from unittest.mock import patch
 import requests.exceptions
 
 # Adjust the import path based on how you will run the tests
-# If running with `python -m unittest discover product_info_fetcher/tests` from project root:
 from product_info_fetcher.barcode_reader import get_product_info
-# If running the test file directly for debugging and `product_info_fetcher` is in PYTHONPATH:
-# from ..barcode_reader import get_product_info
-
 
 class TestBarcodeReader(unittest.TestCase):
 
-    @patch('product_info_fetcher.barcode_reader.openfoodfacts.products.get_product')
-    def test_successful_product_lookup(self, mock_get_product):
-        # Configure the mock to return a sample successful API response
-        sample_api_response = {
-            "status": 1,
-            "product": {
-                "product_name": "Test Product",
-                "brands": "Test Brand",
-                "quantity": "100g",
-                "ingredients_text": "Ingredient A, Ingredient B",
-                "categories": "Category X, Category Y"
-            }
+    @patch('product_info_fetcher.barcode_reader.api.product.get')
+    def test_successful_product_lookup(self, mock_api_get):
+        sample_barcode = "1234567890123"
+        api_response = {
+            "code": sample_barcode,
+            "product_name": "Delicious Chips",
+            "brands": "ChipCo",
+            "quantity": "200g",
+            "ingredients_text": "Potatoes, Oil, Salt",
+            "categories": "Snacks, Salty Snacks"
         }
-        mock_get_product.return_value = sample_api_response
+        mock_api_get.return_value = api_response
 
         expected_result = {
-            "product_name": "Test Product",
-            "brand": "Test Brand",
-            "quantity": "100g",
-            "ingredients_text": "Ingredient A, Ingredient B",
-            "categories": "Category X, Category Y"
+            "product_name": "Delicious Chips",
+            "brand": "ChipCo",  # 'brands' from API becomes 'brand'
+            "quantity": "200g",
+            "ingredients_text": "Potatoes, Oil, Salt",
+            "categories": "Snacks, Salty Snacks"
         }
 
-        result = get_product_info("dummy_barcode_success")
+        result = get_product_info(sample_barcode)
         self.assertEqual(result, expected_result)
+        mock_api_get.assert_called_once_with(sample_barcode, fields=["product_name", "brands", "quantity", "ingredients_text", "categories", "code"])
 
-    @patch('product_info_fetcher.barcode_reader.openfoodfacts.products.get_product')
-    def test_product_not_found_api_returns_none(self, mock_get_product):
-        # Configure the mock to return None (simulating API finding no product but not an error)
-        # This case is actually handled by the "status" != 1 or no "product" key in current implementation
-        # A more accurate simulation for "not found" by the API directly
-        mock_get_product.return_value = None 
-        result = get_product_info("dummy_barcode_not_found_none")
+    @patch('product_info_fetcher.barcode_reader.api.product.get')
+    def test_product_not_found_api_returns_none(self, mock_api_get):
+        sample_barcode = "0000000000000"
+        mock_api_get.return_value = None 
+        result = get_product_info(sample_barcode)
         self.assertIsNone(result)
+        mock_api_get.assert_called_once_with(sample_barcode, fields=["product_name", "brands", "quantity", "ingredients_text", "categories", "code"])
 
-    @patch('product_info_fetcher.barcode_reader.openfoodfacts.products.get_product')
-    def test_product_not_found_api_returns_empty_product(self, mock_get_product):
-        # Configure the mock for when API returns data but "product" key is missing or status is not 1
-        sample_api_response_no_product = {
-            "status": 1,
-            # "product": {} # Missing 'product' key
+    @patch('product_info_fetcher.barcode_reader.api.product.get')
+    def test_product_not_found_barcode_mismatch(self, mock_api_get):
+        requested_barcode = "1111111111111"
+        returned_barcode = "2222222222222"
+        api_response = {
+            "code": returned_barcode, # API returns data for a different barcode
+            "product_name": "Some Other Product",
+            "brands": "OtherBrand"
         }
-        mock_get_product.return_value = sample_api_response_no_product
-        result = get_product_info("dummy_barcode_not_found_empty")
+        mock_api_get.return_value = api_response
+        result = get_product_info(requested_barcode)
         self.assertIsNone(result)
+        mock_api_get.assert_called_once_with(requested_barcode, fields=["product_name", "brands", "quantity", "ingredients_text", "categories", "code"])
 
-    @patch('product_info_fetcher.barcode_reader.openfoodfacts.products.get_product')
-    def test_product_not_found_api_returns_status_0(self, mock_get_product):
-        sample_api_response_status_0 = {
-            "status": 0,
-            "product": { # Product key might still be there but status 0 means not found
-                 "product_name": "Test Product",
-            }
+    @patch('product_info_fetcher.barcode_reader.api.product.get')
+    def test_product_not_found_missing_product_name(self, mock_api_get):
+        sample_barcode = "3333333333333"
+        api_response = {
+            "code": sample_barcode,
+            # "product_name": "Essential field missing", # product_name is missing
+            "brands": "BrandX",
+            "quantity": "100g"
         }
-        mock_get_product.return_value = sample_api_response_status_0
-        result = get_product_info("dummy_barcode_not_found_status_0")
+        mock_api_get.return_value = api_response
+        result = get_product_info(sample_barcode)
         self.assertIsNone(result)
+        mock_api_get.assert_called_once_with(sample_barcode, fields=["product_name", "brands", "quantity", "ingredients_text", "categories", "code"])
 
-    @patch('product_info_fetcher.barcode_reader.openfoodfacts.products.get_product')
-    def test_network_error(self, mock_get_product):
-        # Configure the mock to raise RequestException
-        mock_get_product.side_effect = requests.exceptions.RequestException("Test network error")
-
-        # We can also check if sys.stderr was called, but it's more complex
-        # For now, just check the return value
-        result = get_product_info("dummy_barcode_network_error")
+    @patch('product_info_fetcher.barcode_reader.api.product.get')
+    def test_network_error(self, mock_api_get):
+        sample_barcode = "4444444444444"
+        mock_api_get.side_effect = requests.exceptions.RequestException("Simulated network error")
+        result = get_product_info(sample_barcode)
         self.assertIsNone(result)
+        mock_api_get.assert_called_once_with(sample_barcode, fields=["product_name", "brands", "quantity", "ingredients_text", "categories", "code"])
 
-    @patch('product_info_fetcher.barcode_reader.openfoodfacts.products.get_product')
-    def test_other_api_error(self, mock_get_product):
-        # Configure the mock to raise a generic Exception
-        mock_get_product.side_effect = Exception("Test generic API error")
-        
-        result = get_product_info("dummy_barcode_other_error")
+    @patch('product_info_fetcher.barcode_reader.api.product.get')
+    def test_other_api_error(self, mock_api_get):
+        sample_barcode = "5555555555555"
+        mock_api_get.side_effect = Exception("Simulated generic API error")
+        result = get_product_info(sample_barcode)
         self.assertIsNone(result)
+        mock_api_get.assert_called_once_with(sample_barcode, fields=["product_name", "brands", "quantity", "ingredients_text", "categories", "code"])
+
+    @patch('product_info_fetcher.barcode_reader.api.product.get')
+    def test_partial_data_from_api(self, mock_api_get):
+        sample_barcode = "6666666666666"
+        api_response = {
+            "code": sample_barcode,
+            "product_name": "Partial Product",
+            "brands": "BrandY",
+            # quantity is missing
+            "ingredients_text": "Ingredients Z",
+            # categories is missing
+        }
+        mock_api_get.return_value = api_response
+
+        expected_result = {
+            "product_name": "Partial Product",
+            "brand": "BrandY",
+            "quantity": None, # Expect None for missing fields
+            "ingredients_text": "Ingredients Z",
+            "categories": None # Expect None for missing fields
+        }
+        result = get_product_info(sample_barcode)
+        self.assertEqual(result, expected_result)
+        mock_api_get.assert_called_once_with(sample_barcode, fields=["product_name", "brands", "quantity", "ingredients_text", "categories", "code"])
+
 
 if __name__ == '__main__':
     unittest.main()
