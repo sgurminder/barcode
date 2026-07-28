@@ -50,7 +50,7 @@ def main():
     print(f"Barcode Reader CLI - Fetching info for barcode: {barcode_from_arg}")
 
     info = get_product_info(barcode_from_arg)
-
+ 
     if info:
         print(f"Product Name: {info.get('product_name', 'N/A')}")
         # Main expects 'brand', get_product_info now returns 'brand' (mapped from 'brands')
